@@ -6,6 +6,7 @@
 // Reads the invite token from URL, asks user to set a password, then
 // calls POST /auth/accept-invite → auto-logs in and redirects to dashboard.
 // =============================================================================
+export const dynamic = "force-dynamic";
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
