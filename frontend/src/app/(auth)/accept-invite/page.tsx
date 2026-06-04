@@ -8,7 +8,7 @@
 // =============================================================================
 export const dynamic = "force-dynamic";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react'; // Suspense import kiya
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
@@ -36,7 +36,8 @@ const schema = z
 
 type FormData = z.infer<typeof schema>;
 
-export default function AcceptInvitePage() {
+// 1. Tumhara saara main logic is naye Component mein daal diya
+function AcceptInviteContent() {
   const router         = useRouter();
   const searchParams   = useSearchParams();
   const token          = searchParams.get('token');
@@ -259,5 +260,20 @@ export default function AcceptInvitePage() {
         </p>
       </div>
     </div>
+  );
+}
+
+// 2. Main Page ko Suspense mein wrap kar diya
+export default function AcceptInvitePage() {
+  return (
+    <Suspense 
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#0b1326]">
+          <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+        </div>
+      }
+    >
+      <AcceptInviteContent />
+    </Suspense>
   );
 }
