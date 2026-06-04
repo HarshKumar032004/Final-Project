@@ -1,0 +1,208 @@
+// =============================================================================
+// UNIFIED PRISMA SCHEMA — AI Carbon Footprint Tracker
+// Single source of truth for all database models (100% PostgreSQL).
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  COMPANY_ADMIN
+  DATA_CONTRIBUTOR
+  AUDITOR
+}
+
+enum PlanType {
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+enum Industry {
+  MANUFACTURING
+  TECHNOLOGY
+  FINANCE
+  HEALTHCARE
+  RETAIL
+  LOGISTICS
+  ENERGY
+  AGRICULTURE
+  CONSTRUCTION
+  OTHER
+}
+
+// GHG Protocol scopes (Scope 1, 2, 3)
+enum EmissionScope {
+  SCOPE_1 // Direct — owned/controlled sources (fuel combustion, company vehicles)
+  SCOPE_2 // Indirect — purchased electricity, heat, steam, cooling
+  SCOPE_3 // All other indirect — supply chain, business travel, waste, etc.
+}
+
+enum EmissionCategory {
+  ELECTRICITY
+  NATURAL_GAS
+  FLEET_VEHICLES
+  AIR_TRAVEL
+  GROUND_TRAVEL
+  WASTE
+  WATER
+  REFRIGERANTS
+  PURCHASED_GOODS
+  EMPLOYEE_COMMUTE
+  OTHER
+}
+
+// ─── COMPANY ──────────────────────────────────────────────────────────────────
+
+model Company {
+  id                 String       @id @default(cuid())
+  name               String
+  industry           Industry
+  registrationNumber String       @unique
+  totalEmployees     Int
+  logoUrl            String?
+  website            String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  // Relations
+  users              User[]
+  subscription       Subscription?
+  emissionRecords    EmissionRecord[]
+
+  @@index([registrationNumber])
+  @@map("companies")
+}
+
+// ─── USER ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id                  String    @id @default(cuid())
+  name                String
+  email               String    @unique
+  password            String    // bcrypt hashed — never return in API responses
+  role                UserRole  @default(DATA_CONTRIBUTOR)
+  isActive            Boolean   @default(true)
+  lastLoginAt         DateTime?
+  refreshToken        String?   // hashed refresh token for rotation
+
+  // ── Invite flow ─────────────────────────────────────────────────
+  // Invited users start with isActive=false until they accept the invite.
+  inviteToken         String?   @unique
+  inviteTokenExpires  DateTime?
+
+  // ── Password reset flow ─────────────────────────────────────────
+  resetToken          String?   @unique
+  resetTokenExpires   DateTime?
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  companyId           String
+  company             Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Emissions logged by this user
+  emissionRecords EmissionRecord[]
+
+  @@index([email, isActive])
+  @@index([companyId, role])
+  @@index([inviteToken])
+  @@index([resetToken])
+  @@map("users")
+}
+
+
+// ─── SUBSCRIPTION ─────────────────────────────────────────────────────────────
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  planType               PlanType           @default(STARTER)
+  status                 SubscriptionStatus @default(TRIALING)
+  startDate              DateTime           @default(now())
+  endDate                DateTime?
+  trialEndDate           DateTime?
+  stripeCustomerId       String?            @unique
+  stripeSubscriptionId   String?            @unique
+  razorpayCustomerId     String?
+  razorpaySubscriptionId String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  // Relations — 1:1 with Company
+  companyId              String             @unique
+  company                Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
+  @@map("subscriptions")
+}
+
+// ─── EMISSION RECORD ──────────────────────────────────────────────────────────
+
+model EmissionRecord {
+  id              String           @id @default(cuid())
+  scope           EmissionScope
+  category        EmissionCategory
+  description     String?
+
+  // Measurement fields
+  amount          Float            // Quantity of activity (kWh, litres, km, tonnes, etc.)
+  unit            String           // Unit of measurement string (e.g. "kWh", "km", "litres")
+  emissionFactor  Float            // kgCO2e per unit (from GHG Protocol / IPCC factors)
+  calculatedCO2e  Float            // Auto-calculated: amount × emissionFactor (kgCO2e)
+
+  // Metadata
+  dateLogged      DateTime         @default(now())  // Period the emission applies to
+  evidenceUrl     String?          // Link to supporting document / invoice
+
+  // Audit
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Relations
+  companyId       String
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  loggedById      String
+  loggedBy        User             @relation(fields: [loggedById], references: [id])
+
+  @@index([companyId, dateLogged])
+  @@index([companyId, scope])
+  @@index([companyId, category])
+  @@map("emission_records")
+}
+
+// ─── AUDIT LOG ────────────────────────────────────────────────────────────────
+// Immutable append-only table — records every significant system action.
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  companyId   String
+  userId      String
+  action      String   // e.g. "EMISSION_CREATED", "SUBSCRIPTION_UPGRADED"
+  entityType  String   // e.g. "EmissionRecord", "Subscription"
+  entityId    String?
+  metadata    Json?    // Extra context as JSON blob
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([userId])
+  @@map("audit_logs")
+}

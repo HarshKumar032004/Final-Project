@@ -1,0 +1,75 @@
+# ==============================================================================
+# CARBONTRACK MONOREPO - GLOBAL .GITIGNORE
+# ==============================================================================
+
+# ─── OS / Environment ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+*.sqlite
+
+# ─── Environment Variables (CRITICAL: Never commit these) ─────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+*.pem
+
+# ─── Node & JavaScript ────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Backend (Express / Node.js) ──────────────────────────────────────────────
+backend/dist/
+backend/build/
+backend/coverage/
+backend/.nyc_output/
+
+# ─── Frontend (Next.js) ───────────────────────────────────────────────────────
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/coverage/
+
+# Next.js specific
+*.tsbuildinfo
+next-env.d.ts
+
+# ─── ML Service (Python) ──────────────────────────────────────────────────────
+ml-service/__pycache__/
+ml-service/*.py[cod]
+ml-service/*$py.class
+ml-service/venv/
+ml-service/.venv/
+ml-service/env/
+ml-service/.env/
+ml-service/.pytest_cache/
+ml-service/htmlcov/
+ml-service/.coverage
+ml-service/build/
+ml-service/dist/
+
+# ─── Database & Prisma ────────────────────────────────────────────────────────
+# (Do not ignore prisma/migrations if you want schema history in version control)
+# But DO ignore any locally generated SQLite databases if used for testing
+*.db
+*.db-journal
+
+# ─── Docker / DevOps ──────────────────────────────────────────────────────────
+# Ignore local docker overrides
+docker-compose.override.yml
+
+# ─── IDE / Editor ─────────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo

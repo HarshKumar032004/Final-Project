@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: carbontrack_db
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: rootpassword
+      POSTGRES_DB: carbontrack
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - carbontrack_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d carbontrack"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: carbontrack_backend
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - DATABASE_URL=postgresql://root:rootpassword@postgres:5432/carbontrack?schema=public
+      - JWT_SECRET=your_super_secret_jwt_key_here
+      - FRONTEND_URL=http://localhost:3000
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - ML_SERVICE_URL=http://ml-service:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - carbontrack_net
+
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    container_name: carbontrack_ml
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+    networks:
+      - carbontrack_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: carbontrack_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
+    depends_on:
+      - backend
+    networks:
+      - carbontrack_net
+
+networks:
+  carbontrack_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
