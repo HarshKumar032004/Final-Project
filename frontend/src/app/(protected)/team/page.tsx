@@ -109,7 +109,7 @@ export default function TeamPage() {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto whitespace-nowrap w-full">
             <table className="w-full text-sm">
               <thead className="bg-[#121828]">
                 <tr className="border-b border-slate-800 text-left text-xs font-semibold uppercase tracking-widest text-slate-500">

@@ -66,8 +66,8 @@ export function InviteMemberModal({ isOpen, onClose, onSuccess }: InviteMemberMo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-[#171f33] p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-4 md:p-0">
+      <div className="w-full max-w-md rounded-t-3xl md:rounded-2xl border border-slate-700 bg-[#171f33] p-6 shadow-2xl">
         <h2 className="mb-2 text-xl font-bold text-white">Invite New Member</h2>
         <p className="mb-6 text-sm text-slate-400">
           Send an invitation email to add a new member to your workspace.

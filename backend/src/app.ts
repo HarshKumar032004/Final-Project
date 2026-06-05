@@ -25,6 +25,7 @@ import adminRoutes        from './routes/admin.routes';
 import teamRoutes         from './routes/team.routes';
 import exportRoutes       from './routes/export.routes';
 import mlRoutes           from './routes/ml.routes';
+import { settingsRoutes } from './routes/settings.routes';
 
 // ─── Billing webhook handler (needs raw body — imported directly) ──────────
 import { handleStripeWebhook } from './controllers/billing.controller';
@@ -107,6 +108,7 @@ export function createApp(): Application {
   app.use(`${config.server.apiPrefix}/team`,          teamRoutes);
   app.use(`${config.server.apiPrefix}/export`,        exportRoutes);
   app.use(`${config.server.apiPrefix}/ml`,            mlRoutes);
+  app.use(`${config.server.apiPrefix}/settings`,      settingsRoutes);
 
   app.use(notFoundHandler);
   app.use(globalErrorHandler);

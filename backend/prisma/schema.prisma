@@ -84,6 +84,7 @@ model Company {
   users              User[]
   subscription       Subscription?
   emissionRecords    EmissionRecord[]
+  apiKeys            ApiKey[]
 
   @@index([registrationNumber])
   @@map("companies")
@@ -150,6 +151,23 @@ model Subscription {
 
   @@index([stripeCustomerId])
   @@map("subscriptions")
+}
+
+// ─── API KEY ────────────────────────────────────────────────────────────────────
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  name      String    @default("Default Key")
+  key       String    @unique
+  createdAt DateTime  @default(now())
+  lastUsed  DateTime?
+
+  // Relations
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("api_keys")
 }
 
 // ─── EMISSION RECORD ──────────────────────────────────────────────────────────

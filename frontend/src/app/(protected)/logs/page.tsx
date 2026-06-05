@@ -320,6 +320,7 @@ export default function LogsPage() {
           </div>
         ) : (
           <>
+          <div className="overflow-x-auto whitespace-nowrap w-full">
             <table className="w-full text-sm">
               <thead className="bg-[#121828]">
                 <tr className="border-b border-slate-800 text-left text-xs font-semibold uppercase tracking-widest text-slate-500">
@@ -359,14 +360,15 @@ export default function LogsPage() {
                 )}
               </tbody>
             </table>
+          </div>
           </>
         )}
       </div>
 
       {/* New Log Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-[#171f33] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-4 md:p-0">
+          <div className="w-full max-w-lg rounded-t-3xl md:rounded-2xl border border-slate-700 bg-[#171f33] p-6 shadow-2xl">
             <h2 className="mb-4 text-lg font-bold text-white">Log Emission Event</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>

@@ -271,58 +271,60 @@ export default function BillingPage() {
                     <p className="text-sm">No invoices found for this account.</p>
                   </div>
                 ) : (
-                  <table className="w-full text-left text-sm text-slate-400">
-                    <thead className="bg-slate-800/50 text-xs uppercase text-slate-500 border-b border-slate-700/50">
-                      <tr>
-                        <th className="px-6 py-4 font-medium">Invoice Number</th>
-                        <th className="px-6 py-4 font-medium">Date</th>
-                        <th className="px-6 py-4 font-medium">Status</th>
-                        <th className="px-6 py-4 font-medium text-right">Amount</th>
-                        <th className="px-6 py-4 font-medium text-center">Receipt</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700/50">
-                      {invoices.map((inv) => (
-                        <tr key={inv.id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="px-6 py-4 font-medium text-slate-300">
-                            {inv.number}
-                          </td>
-                          <td className="px-6 py-4">
-                            {new Date(inv.created * 1000).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4">
-                            {inv.status === 'paid' ? (
-                              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-400 border border-emerald-500/20">
-                                Paid
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-1 text-xs font-medium text-yellow-400 border border-yellow-500/20 capitalize">
-                                {inv.status}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-right font-medium text-white">
-                            {formatCurrency(inv.amount_paid)}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            {inv.hosted_invoice_url ? (
-                              <a 
-                                href={inv.hosted_invoice_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                                title="Download Invoice"
-                              >
-                                <Download className="h-4 w-4" />
-                              </a>
-                            ) : (
-                              <span className="text-xs text-slate-600">N/A</span>
-                            )}
-                          </td>
+                  <div className="overflow-x-auto whitespace-nowrap w-full">
+                    <table className="w-full text-left text-sm text-slate-400">
+                      <thead className="bg-slate-800/50 text-xs uppercase text-slate-500 border-b border-slate-700/50">
+                        <tr>
+                          <th className="px-6 py-4 font-medium">Invoice Number</th>
+                          <th className="px-6 py-4 font-medium">Date</th>
+                          <th className="px-6 py-4 font-medium">Status</th>
+                          <th className="px-6 py-4 font-medium text-right">Amount</th>
+                          <th className="px-6 py-4 font-medium text-center">Receipt</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/50">
+                        {invoices.map((inv) => (
+                          <tr key={inv.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="px-6 py-4 font-medium text-slate-300">
+                              {inv.number}
+                            </td>
+                            <td className="px-6 py-4">
+                              {new Date(inv.created * 1000).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4">
+                              {inv.status === 'paid' ? (
+                                <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-400 border border-emerald-500/20">
+                                  Paid
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-1 text-xs font-medium text-yellow-400 border border-yellow-500/20 capitalize">
+                                  {inv.status}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-right font-medium text-white">
+                              {formatCurrency(inv.amount_paid)}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              {inv.hosted_invoice_url ? (
+                                <a 
+                                  href={inv.hosted_invoice_url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                                  title="Download Invoice"
+                                >
+                                  <Download className="h-4 w-4" />
+                                </a>
+                              ) : (
+                                <span className="text-xs text-slate-600">N/A</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </motion.div>
