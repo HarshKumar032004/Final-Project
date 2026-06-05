@@ -22,6 +22,9 @@ import emissionRoutes     from './routes/emission.routes';
 import analyticsRoutes    from './routes/analytics.routes';
 import billingRoutes      from './routes/billing.routes';
 import adminRoutes        from './routes/admin.routes';
+import teamRoutes         from './routes/team.routes';
+import exportRoutes       from './routes/export.routes';
+import mlRoutes           from './routes/ml.routes';
 
 // ─── Billing webhook handler (needs raw body — imported directly) ──────────
 import { handleStripeWebhook } from './controllers/billing.controller';
@@ -97,6 +100,9 @@ export function createApp(): Application {
   app.use(`${config.server.apiPrefix}/analytics`,     analyticsRoutes);
   app.use(`${config.server.apiPrefix}/billing`,       billingRoutes);
   app.use(`${config.server.apiPrefix}/admin`,         adminRoutes);
+  app.use(`${config.server.apiPrefix}/team`,          teamRoutes);
+  app.use(`${config.server.apiPrefix}/export`,        exportRoutes);
+  app.use(`${config.server.apiPrefix}/ml`,            mlRoutes);
 
   app.use(notFoundHandler);
   app.use(globalErrorHandler);

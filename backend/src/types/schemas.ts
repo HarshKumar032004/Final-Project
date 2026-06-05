@@ -54,6 +54,16 @@ export const UserIdParamSchema = z.object({
   params: z.object({ id: cuid }),
 });
 
+export const InviteMemberSchema = z.object({
+  body: z.object({
+    email: z.string().email({ message: 'Invalid email address' }).toLowerCase(),
+    name: z.string().min(2).max(80).trim(),
+    role: z.nativeEnum(UserRole, {
+      errorMap: () => ({ message: `Must be one of: ${Object.values(UserRole).join(', ')}` }),
+    }),
+  }),
+});
+
 // ─── Company Schemas ──────────────────────────────────────────────────────────
 export const UpdateCompanySchema = z.object({
   params: z.object({ id: cuid }),

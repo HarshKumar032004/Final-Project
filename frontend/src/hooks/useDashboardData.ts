@@ -10,6 +10,7 @@ export interface UseDashboardResult {
   totalYTD: number;
   highestScope: { name: string; percentage: number };
   forecastTotal: number;
+  currentPlan: string;
   isLoading: boolean;
   error: string | null;
 }
@@ -26,6 +27,7 @@ interface ApiErrorResponse {
 
 export function useDashboardData(): UseDashboardResult {
   const [data, setData] = useState<AnalyticsDashboardData | null>(null);
+  const [currentPlan, setCurrentPlan] = useState<string>('STARTER');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +37,10 @@ export function useDashboardData(): UseDashboardResult {
     async function fetchData() {
       try {
         setIsLoading(true);
-        const response = await apiClient.get<ApiSuccessResponse<AnalyticsDashboardData>>('/analytics/dashboard');
+        const [response, planRes] = await Promise.all([
+          apiClient.get<ApiSuccessResponse<AnalyticsDashboardData>>('/analytics/dashboard'),
+          apiClient.get('/billing/stripe/status').catch(() => null)
+        ]);
         const payload = response.data?.data;
         const normalizedData: AnalyticsDashboardData = {
           historicalData: Array.isArray(payload?.historicalData) ? payload.historicalData : [],
@@ -44,6 +49,9 @@ export function useDashboardData(): UseDashboardResult {
         
         if (!cancelled) {
           setData(normalizedData);
+          if (planRes?.data?.data?.currentPlan) {
+            setCurrentPlan(planRes.data.data.currentPlan);
+          }
           setError(null);
         }
       } catch (err: unknown) {
@@ -128,6 +136,7 @@ export function useDashboardData(): UseDashboardResult {
     totalYTD,
     highestScope,
     forecastTotal,
+    currentPlan,
     isLoading,
     error,
   };

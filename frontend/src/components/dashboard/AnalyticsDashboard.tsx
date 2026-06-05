@@ -12,6 +12,7 @@ import { EmissionsLineChart } from '@/components/charts/EmissionsLineChart';
 import { ScopeDonutChart } from '@/components/charts/ScopeDonutChart';
 import { RecentRecordsTable } from '@/components/dashboard/RecentRecordsTable';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { Lock } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -64,6 +65,7 @@ export default function AnalyticsDashboard() {
     totalYTD,
     highestScope,
     forecastTotal,
+    currentPlan,
     isLoading,
     error,
   } = useDashboardData();
@@ -153,10 +155,20 @@ export default function AnalyticsDashboard() {
         </div>
         
         <button
-          onClick={generatePDF}
-          className="mt-4 sm:mt-0 flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg transition-all hover:bg-emerald-400 hover:shadow-emerald-500/25"
+          onClick={() => {
+            if (currentPlan === 'STARTER') {
+              window.location.href = '/subscription';
+            } else {
+              generatePDF();
+            }
+          }}
+          className={`mt-4 sm:mt-0 flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+            currentPlan === 'STARTER' 
+              ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' 
+              : 'bg-emerald-500 text-slate-900 hover:bg-emerald-400 hover:shadow-lg hover:shadow-emerald-500/25'
+          }`}
         >
-          <Download className="h-4 w-4" />
+          {currentPlan === 'STARTER' ? <Lock className="h-4 w-4" /> : <Download className="h-4 w-4" />}
           Export IEEE/ESG Report (PDF)
         </button>
       </div>
@@ -169,7 +181,7 @@ export default function AnalyticsDashboard() {
       />
 
       {/* ── Main Line Chart ───────────────────────────────────── */}
-      <div className="rounded-2xl border border-slate-700/30 bg-[#171f33] p-6">
+      <div className="rounded-2xl border border-slate-700/30 bg-[#171f33] p-6 relative overflow-hidden">
         <div className="mb-6 flex items-start justify-between">
           <div>
             <h2 className="text-base font-bold text-white">Emissions Trend &amp; AI Forecast</h2>
@@ -182,7 +194,31 @@ export default function AnalyticsDashboard() {
             ML Active
           </span>
         </div>
-        <EmissionsLineChart data={chartData} forecastStartIndex={forecastStartIndex} />
+        
+        {/* Chart Content (Blurred if STARTER) */}
+        <div className={`${currentPlan === 'STARTER' ? 'blur-[8px] pointer-events-none opacity-50 select-none' : ''} transition-all duration-300`}>
+          <EmissionsLineChart data={chartData} forecastStartIndex={forecastStartIndex} />
+        </div>
+
+        {/* Lock Overlay for STARTER Plan */}
+        {currentPlan === 'STARTER' && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#171f33]/40 backdrop-blur-[2px]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-800/80 mb-4 border border-slate-700/50 shadow-xl">
+              <Lock className="h-6 w-6 text-violet-400" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2 tracking-tight drop-shadow-md">AI Forecasting Locked</h3>
+            <p className="text-sm text-slate-300 mb-6 max-w-sm text-center drop-shadow-md">
+              Upgrade to a Pro or Enterprise plan to unlock machine learning predictions and advanced analytics.
+            </p>
+            <button
+              onClick={() => window.location.href = '/subscription'}
+              className="flex items-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-600/20 hover:bg-violet-500 transition-all hover:scale-105"
+            >
+              <Sparkles className="h-4 w-4" />
+              Upgrade to Pro
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Bottom Row ────────────────────────────────────────── */}

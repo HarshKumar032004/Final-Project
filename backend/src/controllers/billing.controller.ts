@@ -36,9 +36,16 @@ function getStripeClient(): Stripe {
 // Replace these with your real Stripe Price IDs from your Dashboard.
 // Create products/prices at: https://dashboard.stripe.com/test/products
 const PLAN_PRICE_MAP: Record<string, string> = {
-  [PlanType.STARTER]:    process.env.STRIPE_PRICE_STARTER    ?? 'price_starter_placeholder',
-  [PlanType.PRO]:        process.env.STRIPE_PRICE_PRO        ?? 'price_pro_placeholder',
-  [PlanType.ENTERPRISE]: process.env.STRIPE_PRICE_ENTERPRISE ?? 'price_enterprise_placeholder',
+  [PlanType.STARTER]:    config.stripe.prices.starter,
+  [PlanType.PRO]:        config.stripe.prices.pro,
+  [PlanType.ENTERPRISE]: config.stripe.prices.enterprise,
+};
+
+const getPlanTypeFromPriceId = (priceId: string): PlanType | undefined => {
+  for (const [plan, id] of Object.entries(PLAN_PRICE_MAP)) {
+    if (id === priceId) return plan as PlanType;
+  }
+  return undefined;
 };
 
 // ─── Zod schema for checkout request body ─────────────────────────────────────
@@ -168,6 +175,209 @@ export const getBillingSubscription = asyncHandler(async (req: Request, res: Res
 });
 
 // =============================================================================
+// POST /api/v1/billing/create-portal
+// Creates a Stripe Customer Portal Session for managing subscriptions.
+// Returns: { portalUrl: string }
+// =============================================================================
+export const createPortalSession = asyncHandler(async (req: Request, res: Response) => {
+  const stripe = getStripeClient();
+  const companyId = req.user!.companyId;
+
+  // Fetch the company's current subscription
+  const subscription = await prisma.subscription.findUnique({
+    where: { companyId },
+  });
+
+  if (!subscription || !subscription.stripeCustomerId) {
+    throw new AppError('No active Stripe customer found. Please subscribe first.', HttpStatus.NOT_FOUND);
+  }
+
+  const frontendOrigin = config.cors.allowedOrigins[0] ?? 'http://localhost:3000';
+
+  // Create the Portal Session
+  const portalSession = await stripe.billingPortal.sessions.create({
+    customer: subscription.stripeCustomerId,
+    return_url: `${frontendOrigin}/billing`,
+  });
+
+  if (!portalSession.url) {
+    throw new AppError('Stripe did not return a portal URL.', HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+
+  // Audit log
+  auditLog({
+    companyId,
+    userId: req.user!.sub,
+    action: 'PORTAL_SESSION_CREATED',
+    entityType: 'Subscription',
+    entityId: subscription.id,
+    req,
+  });
+
+  logger.info(`[Billing] Portal session created for company ${companyId}`);
+
+  sendSuccess(res, { portalUrl: portalSession.url }, 'Portal session created');
+});
+
+
+// =============================================================================
+// GET /api/v1/billing/stripe/status
+// Fetches live subscription dates directly from Stripe API.
+// Returns: { currentPlan, status, currentPeriodStart, currentPeriodEnd }
+// =============================================================================
+export const getStripeStatus = asyncHandler(async (req: Request, res: Response) => {
+  const stripe = getStripeClient();
+  const companyId = req.user!.companyId;
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { companyId },
+  });
+
+  if (!subscription) {
+    throw new AppError('No subscription found for this company.', HttpStatus.NOT_FOUND);
+  }
+
+  let currentPeriodStart: Date | null = null;
+  let currentPeriodEnd: Date | null = null;
+
+  if (subscription.stripeSubscriptionId) {
+    try {
+      const stripeSub = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+      currentPeriodStart = new Date(stripeSub.current_period_start * 1000);
+      currentPeriodEnd = new Date(stripeSub.current_period_end * 1000);
+    } catch (error) {
+      logger.error(`Failed to retrieve Stripe subscription ${subscription.stripeSubscriptionId}:`, error);
+      // Fallback to database dates if Stripe API fails
+      currentPeriodStart = subscription.startDate;
+      currentPeriodEnd = subscription.endDate;
+    }
+  } else {
+    // If no Stripe subscription ID (e.g., free tier), use database dates
+    currentPeriodStart = subscription.startDate;
+    currentPeriodEnd = subscription.endDate;
+  }
+
+  sendSuccess(res, {
+    currentPlan: subscription.planType,
+    status: subscription.status,
+    currentPeriodStart,
+    currentPeriodEnd,
+  }, 'Stripe status retrieved');
+});
+
+// =============================================================================
+// GET /api/v1/billing/stripe/invoices
+// Fetches real invoices directly from Stripe API.
+// =============================================================================
+export const getStripeInvoices = asyncHandler(async (req: Request, res: Response) => {
+  const stripe = getStripeClient();
+  const companyId = req.user!.companyId;
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { companyId },
+    select: { stripeCustomerId: true },
+  });
+
+  if (!subscription || !subscription.stripeCustomerId) {
+    // No customer ID yet, so no invoices
+    sendSuccess(res, [], 'No invoices found');
+    return;
+  }
+
+  try {
+    const invoices = await stripe.invoices.list({
+      customer: subscription.stripeCustomerId,
+      limit: 10,
+    });
+
+    const mappedInvoices = invoices.data.map(inv => ({
+      id: inv.id,
+      number: inv.number || 'Pending',
+      amount_paid: inv.amount_paid,
+      status: inv.status,
+      created: inv.created, // unix timestamp
+      hosted_invoice_url: inv.hosted_invoice_url,
+    }));
+
+    sendSuccess(res, mappedInvoices, 'Invoices retrieved');
+  } catch (error) {
+    logger.error(`Failed to retrieve invoices for customer ${subscription.stripeCustomerId}:`, error);
+    throw new AppError('Failed to fetch invoices from Stripe.', HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+});
+
+// =============================================================================
+// GET /api/v1/billing/usage
+// Fetches real usage metrics (logs this month, active team members) against plan limits.
+// =============================================================================
+export const getUsageSummary = asyncHandler(async (req: Request, res: Response) => {
+  const companyId = req.user!.companyId;
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { companyId },
+    select: { planType: true },
+  });
+
+  const planType = subscription?.planType || PlanType.STARTER;
+
+  // Set limits based on plan
+  let logsLimit: number | null = null;
+  let teamLimit: number | null = null;
+
+  if (planType === PlanType.STARTER) {
+    logsLimit = 100;
+    teamLimit = 5;
+  }
+
+  // Count active team members
+  const activeMembersCount = await prisma.user.count({
+    where: { companyId, isActive: true },
+  });
+
+  // Count logs generated this calendar month
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const endOfMonth = new Date();
+  endOfMonth.setMonth(endOfMonth.getMonth() + 1);
+  endOfMonth.setDate(0);
+  endOfMonth.setHours(23, 59, 59, 999);
+
+  const logsGeneratedThisMonth = await prisma.emissionRecord.count({
+    where: {
+      companyId,
+      createdAt: {
+        gte: startOfMonth,
+        lte: endOfMonth,
+      },
+    },
+  });
+
+  // Calculate percentages (cap at 100%)
+  const logsPercentage = logsLimit 
+    ? Math.min((logsGeneratedThisMonth / logsLimit) * 100, 100)
+    : 0;
+    
+  const teamPercentage = teamLimit
+    ? Math.min((activeMembersCount / teamLimit) * 100, 100)
+    : 0;
+
+  sendSuccess(res, {
+    logs: {
+      count: logsGeneratedThisMonth,
+      limit: logsLimit,
+      percentage: logsPercentage,
+    },
+    team: {
+      count: activeMembersCount,
+      limit: teamLimit,
+      percentage: teamPercentage,
+    }
+  }, 'Usage summary retrieved');
+});
+
+// =============================================================================
 // POST /api/v1/billing/webhook
 // Receives and verifies Stripe webhook events.
 //
@@ -281,11 +491,16 @@ export const handleStripeWebhook = async (req: Request, res: Response): Promise<
         const newStatus = stripeStatusMap[stripeSub.status] ?? SubscriptionStatus.PAST_DUE;
         const periodEndDate = new Date((stripeSub as unknown as { current_period_end: number }).current_period_end * 1000);
 
+        // Extract active price to derive the new planType in case of a portal upgrade/downgrade
+        const activePriceId = stripeSub.items?.data?.[0]?.price?.id;
+        const newPlanType = activePriceId ? getPlanTypeFromPriceId(activePriceId) : undefined;
+
         await prisma.subscription.update({
           where: { id: dbSub.id },
           data: {
             status:  newStatus,
             endDate: periodEndDate,
+            ...(newPlanType && { planType: newPlanType }),
           },
         });
 
@@ -295,10 +510,10 @@ export const handleStripeWebhook = async (req: Request, res: Response): Promise<
           action: 'SUBSCRIPTION_UPDATED',
           entityType: 'Subscription',
           entityId: dbSub.id,
-          metadata: { stripeStatus: stripeSub.status, newStatus },
+          metadata: { stripeStatus: stripeSub.status, newStatus, newPlanType },
         });
 
-        logger.info(`[Webhook] Subscription ${dbSub.id} → status ${newStatus}`);
+        logger.info(`[Webhook] Subscription ${dbSub.id} → status ${newStatus}${newPlanType ? ` (Plan: ${newPlanType})` : ''}`);
         break;
       }
 
@@ -363,3 +578,65 @@ export const handleStripeWebhook = async (req: Request, res: Response): Promise<
   // Always return 200 to acknowledge receipt to Stripe
   res.status(HttpStatus.OK).json({ received: true });
 };
+
+// =============================================================================
+// POST /api/v1/billing/verify-checkout
+// Synchronously verifies a checkout session upon redirect to /billing?session_id=...
+// This fixes race conditions where the user is redirected before the webhook arrives,
+// or when testing locally without a webhook forwarder.
+// =============================================================================
+export const verifyCheckoutSession = asyncHandler(async (req: Request, res: Response) => {
+  const stripe = getStripeClient();
+  const { sessionId } = req.body;
+
+  if (!sessionId) {
+    throw new AppError('Missing sessionId', HttpStatus.BAD_REQUEST);
+  }
+
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+  if (session.payment_status === 'paid' && session.metadata) {
+    const { companyId, subscriptionId, planId, userId } = session.metadata;
+
+    if (companyId && subscriptionId && planId) {
+      // Check if it's already updated (by webhook)
+      const sub = await prisma.subscription.findUnique({ where: { id: subscriptionId } });
+      if (sub && sub.planType !== planId) {
+        let stripeSubscriptionId: string | null = null;
+        let periodEnd: Date | null = null;
+
+        if (typeof session.subscription === 'string') {
+          stripeSubscriptionId = session.subscription;
+          const stripeSub = await stripe.subscriptions.retrieve(session.subscription);
+          periodEnd = new Date((stripeSub as Stripe.Subscription & { current_period_end: number }).current_period_end * 1000);
+        }
+
+        await prisma.subscription.update({
+          where: { id: subscriptionId },
+          data: {
+            planType:             planId as PlanType,
+            status:               SubscriptionStatus.ACTIVE,
+            stripeCustomerId:     session.customer as string ?? undefined,
+            stripeSubscriptionId: stripeSubscriptionId ?? undefined,
+            startDate:            new Date(),
+            endDate:              periodEnd ?? undefined,
+            trialEndDate:         null,
+          },
+        });
+
+        auditLog({
+          companyId,
+          userId: userId ?? 'system',
+          action: 'SUBSCRIPTION_ACTIVATED_SYNC',
+          entityType: 'Subscription',
+          entityId: subscriptionId,
+          metadata: { planId, stripeSessionId: session.id, stripeSubscriptionId },
+        });
+
+        logger.info(`[Billing] Sync verification: Subscription ${subscriptionId} ACTIVATED → plan ${planId}`);
+      }
+    }
+  }
+
+  sendSuccess(res, { verified: true }, 'Checkout session verified');
+});

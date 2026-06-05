@@ -11,7 +11,7 @@ import { Request, Response } from 'express';
 import prisma from '../config/database';
 import { sendSuccess, sendCreated, sendNoContent } from '../utils/response.utils';
 import { AppError, asyncHandler } from '../middleware/errorHandler.middleware';
-import { HttpStatus, EmissionScope, EmissionCategory } from '../types/enums';
+import { HttpStatus, EmissionScope, EmissionCategory, PlanType } from '../types/enums';
 import type { CreateEmissionInput, UpdateEmissionInput, EmissionQueryInput } from '../types/schemas';
 import { logAction } from '../services/audit.service';
 import logger from '../utils/logger';
@@ -32,6 +32,54 @@ export const createEmission = asyncHandler(async (req: Request, res: Response) =
   // ── Auto-calculate CO2e ─────────────────────────────────────────────────────
   // GHG Protocol standard: calculatedCO2e (kgCO2e) = activity amount × emission factor
   const calculatedCO2e = parseFloat((amount * emissionFactor).toFixed(4));
+  
+  // ── Plan Limits Gatekeeping ──────────────────────────────────────────────────
+  const subscription = await prisma.subscription.findUnique({
+    where: { companyId: req.user!.companyId },
+    select: { planType: true },
+  });
+
+  if (subscription?.planType === PlanType.STARTER) {
+    if (scope === EmissionScope.SCOPE_3) {
+      void logAction({
+        companyId: req.user!.companyId,
+        userId: req.user!.sub,
+        action: 'LIMIT_VIOLATION',
+        entityType: 'EmissionScope',
+        metadata: { reason: 'Scope 3 tracking requires the Pro plan.', scope },
+        req,
+      });
+      throw new AppError('Scope 3 tracking requires the Pro plan.', HttpStatus.FORBIDDEN);
+    }
+
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const endOfMonth = new Date();
+    endOfMonth.setMonth(endOfMonth.getMonth() + 1);
+    endOfMonth.setDate(0);
+    endOfMonth.setHours(23, 59, 59, 999);
+
+    const currentMonthLogs = await prisma.emissionRecord.count({
+      where: {
+        companyId: req.user!.companyId,
+        createdAt: { gte: startOfMonth, lte: endOfMonth },
+      },
+    });
+
+    if (currentMonthLogs >= 100) {
+      void logAction({
+        companyId: req.user!.companyId,
+        userId: req.user!.sub,
+        action: 'LIMIT_VIOLATION',
+        entityType: 'MonthlyLogLimit',
+        metadata: { reason: 'Monthly log limit reached.', limit: 100, current: currentMonthLogs },
+        req,
+      });
+      throw new AppError('Monthly log limit reached. Please upgrade your plan.', HttpStatus.FORBIDDEN);
+    }
+  }
 
   const record = await prisma.emissionRecord.create({
     data: {

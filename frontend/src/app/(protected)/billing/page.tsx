@@ -1,428 +1,334 @@
 'use client';
 
-// =============================================================================
-// BILLING PAGE — Phase 6
-// Displays current plan status and 3 pricing tiers (Starter / Pro / Enterprise)
-// Upgrade buttons call POST /api/v1/billing/create-checkout → redirect to Stripe
-// =============================================================================
-
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  CreditCard,
-  Zap,
-  Building2,
-  Sparkles,
-  CheckCircle2,
-  Loader2,
-  AlertTriangle,
-  ArrowRight,
-  Star,
-  Crown,
-} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import { CreditCard, ExternalLink, Loader2, Download, Receipt, Building2, BarChart3, AlertCircle, Users } from 'lucide-react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import apiClient from '@/services/apiClient';
-import { useAuth } from '@/context/AuthContext';
+import { toast } from 'react-hot-toast';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-type PlanId = 'STARTER' | 'PRO' | 'ENTERPRISE';
+interface SubscriptionData {
+  currentPlan: string;
+  status: string;
+  currentPeriodStart: string;
+  currentPeriodEnd: string | null;
+}
 
-type SubscriptionStatus = 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'TRIALING';
-
-interface Subscription {
+interface Invoice {
   id: string;
-  planType: PlanId;
-  status: SubscriptionStatus;
-  startDate: string;
-  endDate: string | null;
-  trialEndDate: string | null;
-  stripeCustomerId: string | null;
-  stripeSubscriptionId: string | null;
+  number: string;
+  amount_paid: number;
+  status: string;
+  created: number;
+  hosted_invoice_url: string | null;
 }
 
-// ─── Plan Definitions ─────────────────────────────────────────────────────────
-interface PricingPlan {
-  id: PlanId;
-  name: string;
-  price: string;
-  period: string;
-  description: string;
-  icon: React.ElementType;
-  accentColor: string;
-  badgeColor: string;
-  features: string[];
-  highlighted: boolean;
+interface UsageData {
+  logs: { count: number; limit: number | null; percentage: number };
+  team: { count: number; limit: number | null; percentage: number };
 }
 
-const PLANS: PricingPlan[] = [
-  {
-    id: 'STARTER',
-    name: 'Starter',
-    price: '$49',
-    period: '/ month',
-    description: 'For small teams starting their sustainability journey.',
-    icon: Zap,
-    accentColor: 'border-slate-600/60 hover:border-slate-500/80',
-    badgeColor: 'bg-slate-500/15 text-slate-300 ring-slate-500/30',
-    highlighted: false,
-    features: [
-      'Up to 5 users',
-      'Scope 1 & 2 emission tracking',
-      '12-month historical data',
-      'Basic PDF reports',
-      'Email support',
-    ],
-  },
-  {
-    id: 'PRO',
-    name: 'Pro',
-    price: '$149',
-    period: '/ month',
-    description: 'For growing companies with advanced analytics needs.',
-    icon: Star,
-    accentColor: 'border-emerald-500/50 hover:border-emerald-400/80 shadow-emerald-500/10',
-    badgeColor: 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30',
-    highlighted: true,
-    features: [
-      'Up to 50 users',
-      'Scope 1, 2 & 3 tracking',
-      'AI-powered 6-month forecast',
-      'Custom emission factors',
-      'Full audit log access',
-      'Priority email support',
-    ],
-  },
-  {
-    id: 'ENTERPRISE',
-    name: 'Enterprise',
-    price: '$499',
-    period: '/ month',
-    description: 'For large organisations with compliance mandates.',
-    icon: Crown,
-    accentColor: 'border-violet-500/40 hover:border-violet-400/80 shadow-violet-500/10',
-    badgeColor: 'bg-violet-500/15 text-violet-400 ring-violet-500/30',
-    highlighted: false,
-    features: [
-      'Unlimited users',
-      'Full GHG Protocol compliance',
-      'AI 12-month forecast + anomaly detection',
-      'Dedicated Customer Success Manager',
-      'TCFD / CDP / GRI report generation',
-      'SSO / SAML integration',
-      'SLA — 99.9% uptime guarantee',
-    ],
-  },
-];
-
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-const STATUS_STYLES: Record<SubscriptionStatus, string> = {
-  ACTIVE:   'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30',
-  TRIALING: 'bg-blue-500/15 text-blue-400 ring-blue-500/30',
-  PAST_DUE: 'bg-amber-500/15 text-amber-400 ring-amber-500/30',
-  CANCELED: 'bg-rose-500/15 text-rose-400 ring-rose-500/30',
-};
-
-function StatusBadge({ status }: { status: SubscriptionStatus }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${STATUS_STYLES[status]}`}>
-      {status === 'TRIALING' ? 'Free Trial' : status.replace('_', ' ')}
-    </span>
-  );
-}
-
-// ─── Current Plan Card ────────────────────────────────────────────────────────
-function CurrentPlanCard({ subscription }: { subscription: Subscription | null }) {
-  const plan = PLANS.find((p) => p.id === subscription?.planType);
-
-  return (
-    <div className="rounded-2xl border border-slate-700/40 bg-[#171f33] p-6">
-      <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/10">
-          <CreditCard className="h-6 w-6 text-emerald-400" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-lg font-bold text-white">Current Plan</h2>
-            {subscription && <StatusBadge status={subscription.status} />}
-          </div>
-          <p className="mt-1 text-2xl font-bold text-white">
-            {plan?.name ?? 'No Plan'}
-            {plan && <span className="ml-1 text-sm font-normal text-slate-400">{plan.price}{plan.period}</span>}
-          </p>
-          {subscription?.trialEndDate && subscription.status === 'TRIALING' && (
-            <p className="mt-1 text-sm text-amber-400">
-              Trial ends: {new Date(subscription.trialEndDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-            </p>
-          )}
-          {subscription?.endDate && subscription.status === 'ACTIVE' && (
-            <p className="mt-1 text-sm text-slate-400">
-              Renews: {new Date(subscription.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {subscription?.status === 'PAST_DUE' && (
-        <div className="mt-5 flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-          <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-400" />
-          <p className="text-sm text-amber-300">
-            Your last payment failed. Please update your payment method to restore full access.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Pricing Tier Card ────────────────────────────────────────────────────────
-function PlanCard({
-  plan,
-  isCurrentPlan,
-  isAdmin,
-  isUpgrading,
-  onUpgrade,
-}: {
-  plan: PricingPlan;
-  isCurrentPlan: boolean;
-  isAdmin: boolean;
-  isUpgrading: boolean;
-  onUpgrade: (planId: PlanId) => void;
-}) {
-  const Icon = plan.icon;
-
-  return (
-    <div
-      className={`relative flex flex-col rounded-2xl border bg-[#171f33] p-6 shadow-lg transition-all duration-200
-        ${plan.highlighted ? `${plan.accentColor} shadow-xl` : plan.accentColor}`}
-    >
-      {plan.highlighted && (
-        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1 text-xs font-bold text-slate-900 shadow-lg shadow-emerald-500/30">
-            <Sparkles className="h-3 w-3" />
-            Most Popular
-          </span>
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="mb-5">
-        <div className="mb-3 flex items-center gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-            plan.highlighted ? 'bg-emerald-500/15' : plan.id === 'ENTERPRISE' ? 'bg-violet-500/15' : 'bg-slate-700/60'
-          }`}>
-            <Icon className={`h-5 w-5 ${
-              plan.highlighted ? 'text-emerald-400' : plan.id === 'ENTERPRISE' ? 'text-violet-400' : 'text-slate-400'
-            }`} />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-white">{plan.name}</h3>
-            <span className={`text-xs font-semibold ring-1 rounded-full px-2 py-0.5 ${plan.badgeColor}`}>{plan.id}</span>
-          </div>
-        </div>
-        <div className="flex items-end gap-1">
-          <span className="text-4xl font-bold tracking-tight text-white">{plan.price}</span>
-          <span className="mb-1 text-sm text-slate-500">{plan.period}</span>
-        </div>
-        <p className="mt-2 text-sm text-slate-400">{plan.description}</p>
-      </div>
-
-      {/* Feature List */}
-      <ul className="mb-6 flex-1 space-y-2.5">
-        {plan.features.map((feature) => (
-          <li key={feature} className="flex items-start gap-2.5 text-sm text-slate-300">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-500" />
-            {feature}
-          </li>
-        ))}
-      </ul>
-
-      {/* CTA Button */}
-      {isCurrentPlan ? (
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/40 px-4 py-3 text-sm font-semibold text-slate-400 cursor-default">
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-          Current Plan
-        </div>
-      ) : (
-        <button
-          onClick={() => onUpgrade(plan.id)}
-          disabled={!isAdmin || isUpgrading}
-          className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all
-            ${!isAdmin
-              ? 'cursor-not-allowed border border-slate-700 bg-slate-800/30 text-slate-600'
-              : plan.highlighted
-              ? 'bg-emerald-500 text-slate-900 shadow-lg shadow-emerald-500/25 hover:bg-emerald-400 hover:shadow-emerald-500/40 disabled:opacity-60'
-              : plan.id === 'ENTERPRISE'
-              ? 'border border-violet-500/40 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 disabled:opacity-60'
-              : 'border border-slate-600 bg-slate-800/50 text-slate-300 hover:border-slate-500 hover:bg-slate-700/60 disabled:opacity-60'
-            }`}
-          title={!isAdmin ? 'Only Company Admins can upgrade plans' : undefined}
-        >
-          {isUpgrading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <>
-              <Building2 className="h-4 w-4" />
-              Upgrade to {plan.name}
-              <ArrowRight className="h-4 w-4" />
-            </>
-          )}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// =============================================================================
-// PAGE COMPONENT
-// =============================================================================
 export default function BillingPage() {
-  const { user } = useAuth();
-
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [isLoadingSub, setIsLoadingSub] = useState(true);
-  const [fetchError, setFetchError]     = useState<string | null>(null);
-  const [upgradingPlan, setUpgradingPlan] = useState<PlanId | null>(null);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-
-  const isAdmin = user?.role === 'COMPANY_ADMIN';
-
-  // ── Fetch current subscription ──────────────────────────────────────────────
-  const fetchSubscription = useCallback(async () => {
-    try {
-      setIsLoadingSub(true);
-      setFetchError(null);
-      const res = await apiClient.get('/billing/subscription');
-      setSubscription(res.data.data as Subscription);
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setFetchError(axiosErr.response?.data?.message ?? 'Could not load subscription data.');
-    } finally {
-      setIsLoadingSub(false);
-    }
-  }, []);
+  const [subscription, setSubscription] = useState<SubscriptionData | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [portalLoading, setPortalLoading] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   useEffect(() => {
-    fetchSubscription();
-  }, [fetchSubscription]);
+    const fetchBillingData = async () => {
+      try {
+        const sessionId = searchParams.get('session_id');
+        const statusParam = searchParams.get('status');
 
-  // ── Handle Upgrade button click ─────────────────────────────────────────────
-  const handleUpgrade = async (planId: PlanId) => {
-    if (!isAdmin) return;
-    setCheckoutError(null);
-    setUpgradingPlan(planId);
+        if (sessionId && statusParam === 'success') {
+          // Synchronously verify checkout session on the backend to avoid webhook race conditions
+          await apiClient.post('/billing/verify-checkout', { sessionId });
+          toast.success('Subscription upgraded successfully!');
+          // Clean up the URL without reloading the page
+          router.replace('/billing');
+        }
 
+        const [subRes, invRes, usageRes] = await Promise.all([
+          apiClient.get('/billing/stripe/status'),
+          apiClient.get('/billing/stripe/invoices'),
+          apiClient.get('/billing/usage')
+        ]);
+        setSubscription(subRes.data.data);
+        setInvoices(invRes.data.data || []);
+        setUsage(usageRes.data.data);
+      } catch (error) {
+        console.error('Failed to fetch billing data', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchBillingData();
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        setPortalLoading(false);
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
+
+  const handleManageBilling = async () => {
     try {
-      const res = await apiClient.post('/billing/create-checkout', { planId });
-      const { checkoutUrl } = res.data.data as { checkoutUrl: string };
-
-      // Redirect the browser to Stripe Checkout
-      window.location.href = checkoutUrl;
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setCheckoutError(
-        axiosErr.response?.data?.message ?? 'Failed to initiate checkout. Please try again.'
-      );
-      setUpgradingPlan(null);
+      setPortalLoading(true);
+      const res = await apiClient.post('/billing/create-portal');
+      if (res.data.data?.portalUrl) {
+        window.location.href = res.data.data.portalUrl;
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to open customer portal.');
+      setPortalLoading(false);
     }
   };
 
-  // ── Read URL params for Stripe redirect result ──────────────────────────────
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const status = params.get('status');
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(amount / 100);
+  };
 
-    if (status === 'success') {
-      // Refresh subscription data after successful checkout
-      fetchSubscription();
-      // Clean up URL params without a full reload
-      window.history.replaceState({}, '', '/billing');
-    } else if (status === 'cancelled') {
-      setCheckoutError('Checkout was cancelled. No charges were made.');
-      window.history.replaceState({}, '', '/billing');
-    }
-  }, [fetchSubscription]);
+  if (loading) {
+    return (
+      <div className="flex h-[80vh] items-center justify-center bg-[#0b1326]">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+      </div>
+    );
+  }
+
+  const isPro = subscription?.currentPlan !== 'STARTER';
+  const isActive = subscription?.status === 'ACTIVE';
+  const planName = subscription?.currentPlan ? subscription.currentPlan.charAt(0).toUpperCase() + subscription.currentPlan.slice(1).toLowerCase() : 'Starter';
 
   return (
-    <div className="min-h-full bg-[#0b1326]">
-      <div className="mx-auto max-w-6xl px-6 py-8">
-
-        {/* ── Page Header ───────────────────────────────────────────────────── */}
+    <div className="min-h-screen bg-[#0b1326] p-6 lg:p-8">
+      <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-            Billing & Subscription
-          </h1>
-          <p className="mt-1.5 text-sm text-slate-400">
-            Manage your CarbonTrack plan and upgrade for more features.
-            {!isAdmin && (
-              <span className="ml-2 inline-flex items-center gap-1 text-amber-400">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Only Company Admins can change plans.
+          <h1 className="text-3xl font-bold text-white tracking-tight">Billing & Usage</h1>
+          <p className="mt-2 text-slate-400">Manage your subscription, view invoices, and monitor platform usage.</p>
+        </div>
+
+        {/* Top Section: Usage Summary */}
+        <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Carbon Logs Metric */}
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border border-slate-700/40 bg-[#171f33] p-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-slate-400 flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" /> Carbon Logs Generated
+              </h3>
+              <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-md">This Month</span>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-3xl font-bold text-white">{usage?.logs.count.toLocaleString() || 0}</span>
+              <span className="text-sm text-slate-500">
+                / {usage?.logs.limit === null ? 'Unlimited' : usage?.logs.limit.toLocaleString()}
               </span>
-            )}
-          </p>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-2 mt-4 overflow-hidden">
+              <div 
+                className={`h-2 rounded-full ${usage?.logs.limit === null ? 'bg-emerald-500/50 w-full' : 'bg-emerald-500'}`} 
+                style={{ width: usage?.logs.limit === null ? '100%' : `${usage?.logs.percentage}%` }}
+              ></div>
+            </div>
+          </motion.div>
+
+          {/* Active Team Members Metric */}
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+            className="rounded-2xl border border-slate-700/40 bg-[#171f33] p-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-slate-400 flex items-center gap-2">
+                <Users className="h-4 w-4" /> Active Team Members
+              </h3>
+              <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 px-2 py-1 rounded-md">Current</span>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-3xl font-bold text-white">{usage?.team.count.toLocaleString() || 0}</span>
+              <span className="text-sm text-slate-500">
+                / {usage?.team.limit === null ? 'Unlimited' : usage?.team.limit.toLocaleString()}
+              </span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-2 mt-4 overflow-hidden">
+              <div 
+                className={`h-2 rounded-full ${usage?.team.limit === null ? 'bg-blue-500/50 w-full' : 'bg-blue-500'}`} 
+                style={{ width: usage?.team.limit === null ? '100%' : `${usage?.team.percentage}%` }}
+              ></div>
+            </div>
+          </motion.div>
         </div>
 
-        {/* ── Checkout Error Banner ──────────────────────────────────────────── */}
-        {checkoutError && (
-          <div className="mb-6 flex items-center gap-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-5 py-4">
-            <AlertTriangle className="h-5 w-5 flex-shrink-0 text-rose-400" />
-            <p className="text-sm text-rose-300">{checkoutError}</p>
-            <button
-              onClick={() => setCheckoutError(null)}
-              className="ml-auto text-slate-500 hover:text-slate-300 text-lg leading-none"
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Column: Current Plan */}
+          <div className="lg:col-span-1 space-y-8">
+            <motion.div 
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="rounded-2xl border border-slate-700/40 bg-[#171f33] p-8 relative overflow-hidden shadow-lg shadow-black/20"
             >
-              ×
-            </button>
-          </div>
-        )}
+              <div className="absolute right-0 top-0 h-48 w-48 bg-emerald-500/5 blur-3xl rounded-full"></div>
+              
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-semibold text-white">Subscription</h2>
+                  {isActive ? (
+                    <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 border border-emerald-500/20">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2.5 py-1 text-xs font-medium text-yellow-400 border border-yellow-500/20">
+                      {subscription?.status || 'Trial'}
+                    </span>
+                  )}
+                </div>
 
-        {/* ── Current Plan Card ──────────────────────────────────────────────── */}
-        <div className="mb-8">
-          {isLoadingSub ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-700/40 bg-[#171f33] p-6">
-              <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
-              <span className="text-sm text-slate-500">Loading subscription data…</span>
+                <div className="flex items-end gap-3 mb-6">
+                  <div className="p-3 rounded-xl bg-slate-800 border border-slate-700">
+                    <Building2 className="h-6 w-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-white">{planName} Plan</h3>
+                  </div>
+                </div>
+
+                <div className="space-y-4 border-t border-slate-700/50 pt-6 mb-6">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-400">Current Period</span>
+                    <span className="text-sm text-white font-medium">
+                      {subscription?.currentPeriodStart ? new Date(subscription.currentPeriodStart).toLocaleDateString() : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-400">Next Renewal</span>
+                    <span className="text-sm text-white font-medium">
+                      {subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString() : 'Manual'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  {isPro ? (
+                    <button
+                      onClick={handleManageBilling}
+                      disabled={portalLoading}
+                      className="flex items-center justify-center w-full gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 border border-slate-600 transition-all"
+                    >
+                      {portalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                      Manage via Stripe
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => window.location.href = '/subscription'}
+                      className="flex items-center justify-center w-full gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-emerald-950 hover:bg-emerald-400 transition-all"
+                    >
+                      Upgrade Plan
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <AlertCircle className="h-5 w-5 text-emerald-400" />
+                <h3 className="text-sm font-semibold text-emerald-400">Enterprise Support</h3>
+              </div>
+              <p className="text-xs text-emerald-200/70 mt-2 leading-relaxed">
+                Need to increase your usage limits or discuss custom SLAs? Contact your dedicated account manager.
+              </p>
             </div>
-          ) : fetchError ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-rose-800/30 bg-rose-900/10 p-6">
-              <AlertTriangle className="h-5 w-5 flex-shrink-0 text-rose-400" />
-              <p className="text-sm text-rose-400">{fetchError}</p>
-              <button
-                onClick={fetchSubscription}
-                className="ml-auto text-xs text-rose-400 underline hover:no-underline"
-              >
-                Retry
-              </button>
-            </div>
-          ) : (
-            <CurrentPlanCard subscription={subscription} />
-          )}
-        </div>
-
-        {/* ── Pricing Tier Grid ──────────────────────────────────────────────── */}
-        <div>
-          <h2 className="mb-5 text-lg font-bold text-white">
-            Available Plans
-          </h2>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {PLANS.map((plan) => (
-              <PlanCard
-                key={plan.id}
-                plan={plan}
-                isCurrentPlan={subscription?.planType === plan.id}
-                isAdmin={isAdmin}
-                isUpgrading={upgradingPlan === plan.id}
-                onUpgrade={handleUpgrade}
-              />
-            ))}
           </div>
-        </div>
 
-        {/* ── Footer Note ───────────────────────────────────────────────────── */}
-        <p className="mt-8 text-center text-xs text-slate-600">
-          All plans are billed monthly in USD. Cancel anytime. Payments are processed securely by{' '}
-          <span className="text-slate-500">Stripe</span>.
-          VAT/GST may apply based on your billing address.
-        </p>
+          {/* Right Column: Invoices Section */}
+          <div className="lg:col-span-2">
+            <motion.div
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="rounded-2xl border border-slate-700/40 bg-[#171f33] overflow-hidden flex flex-col h-full shadow-lg shadow-black/20"
+            >
+              <div className="p-6 border-b border-slate-700/50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-5 w-5 text-slate-400" />
+                  <h2 className="text-lg font-semibold text-white">Invoice History</h2>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-auto">
+                {invoices.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+                    <Receipt className="h-8 w-8 mb-2 opacity-50" />
+                    <p className="text-sm">No invoices found for this account.</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-sm text-slate-400">
+                    <thead className="bg-slate-800/50 text-xs uppercase text-slate-500 border-b border-slate-700/50">
+                      <tr>
+                        <th className="px-6 py-4 font-medium">Invoice Number</th>
+                        <th className="px-6 py-4 font-medium">Date</th>
+                        <th className="px-6 py-4 font-medium">Status</th>
+                        <th className="px-6 py-4 font-medium text-right">Amount</th>
+                        <th className="px-6 py-4 font-medium text-center">Receipt</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/50">
+                      {invoices.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-slate-800/30 transition-colors">
+                          <td className="px-6 py-4 font-medium text-slate-300">
+                            {inv.number}
+                          </td>
+                          <td className="px-6 py-4">
+                            {new Date(inv.created * 1000).toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4">
+                            {inv.status === 'paid' ? (
+                              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-400 border border-emerald-500/20">
+                                Paid
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-1 text-xs font-medium text-yellow-400 border border-yellow-500/20 capitalize">
+                                {inv.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right font-medium text-white">
+                            {formatCurrency(inv.amount_paid)}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {inv.hosted_invoice_url ? (
+                              <a 
+                                href={inv.hosted_invoice_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                                title="Download Invoice"
+                              >
+                                <Download className="h-4 w-4" />
+                              </a>
+                            ) : (
+                              <span className="text-xs text-slate-600">N/A</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </motion.div>
+          </div>
+
+        </div>
       </div>
     </div>
   );

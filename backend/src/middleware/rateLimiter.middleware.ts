@@ -35,6 +35,20 @@ export const apiRateLimiter = rateLimit({
   statusCode: HttpStatus.TOO_MANY_REQUESTS,
 });
 
+// ─── Team Invite Limiter ──────────────────────────────────────────────────────
+// Strict: prevent email spam abuse
+export const inviteRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // Max 10 invites per hour per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many team invitations sent from this IP. Please try again after an hour.',
+  },
+  statusCode: HttpStatus.TOO_MANY_REQUESTS,
+});
+
 // ─── Registration Limiter ─────────────────────────────────────────────────────
 // Prevent abuse of the registration endpoint
 export const registrationRateLimiter = rateLimit({

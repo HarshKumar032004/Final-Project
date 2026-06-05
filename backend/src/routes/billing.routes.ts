@@ -19,6 +19,11 @@ import { UserRole } from '../types/enums';
 import {
   createCheckoutSession,
   getBillingSubscription,
+  createPortalSession,
+  getStripeStatus,
+  getStripeInvoices,
+  getUsageSummary,
+  verifyCheckoutSession,
 } from '../controllers/billing.controller';
 
 const router = Router();
@@ -39,6 +44,36 @@ router.post(
   '/create-checkout',
   authorize(UserRole.COMPANY_ADMIN),
   createCheckoutSession
+);
+
+// ─── POST /api/v1/billing/create-portal ──────────────────────────────────────
+// Creates a Stripe Customer Portal Session for managing subscriptions.
+// Only Company Admins can access the portal.
+// Returns: { portalUrl: string }
+router.post(
+  '/create-portal',
+  authorize(UserRole.COMPANY_ADMIN),
+  createPortalSession
+);
+
+// ─── GET /api/v1/billing/stripe/status ───────────────────────────────────────
+// Fetches the live subscription status and dates from Stripe API.
+router.get('/stripe/status', getStripeStatus);
+
+// ─── GET /api/v1/billing/stripe/invoices ─────────────────────────────────────
+// Fetches real invoices directly from Stripe API.
+router.get('/stripe/invoices', getStripeInvoices);
+
+// ─── GET /api/v1/billing/usage ───────────────────────────────────────────────
+// Fetches real usage metrics from the database.
+router.get('/usage', getUsageSummary);
+
+// ─── POST /api/v1/billing/verify-checkout ────────────────────────────────────
+// Synchronous checkout verification (called by frontend on success redirect)
+router.post(
+  '/verify-checkout',
+  authorize(UserRole.COMPANY_ADMIN),
+  verifyCheckoutSession
 );
 
 export default router;

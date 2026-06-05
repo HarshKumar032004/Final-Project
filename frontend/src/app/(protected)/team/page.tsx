@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '@/services/apiClient';
 import { useAuth } from '@/context/AuthContext';
-import { Users, UserPlus, Loader2, Mail, ShieldAlert } from 'lucide-react';
+import { Users, UserPlus, Loader2, Mail, ShieldAlert, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
+import { InviteMemberModal } from '@/components/team/InviteMemberModal';
 
 import type { UserRole } from '@/context/AuthContext';
 
@@ -22,19 +23,26 @@ export default function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+
+  const fetchTeam = async () => {
+    try {
+      setIsLoading(true);
+      const res = await apiClient.get('/users');
+      setMembers(res.data.data);
+      setError(null);
+      setErrorStatus(null);
+    } catch (err: any) {
+      const message = err.response?.data?.message || err.message || 'Failed to fetch team roster.';
+      setError(message);
+      setErrorStatus(err.response?.status || null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function fetchTeam() {
-      try {
-        setIsLoading(true);
-        const res = await apiClient.get('/users');
-        setMembers(res.data.data);
-      } catch (err: any) {
-        setError('Failed to fetch team roster.');
-      } finally {
-        setIsLoading(false);
-      }
-    }
     fetchTeam();
   }, []);
 
@@ -56,7 +64,10 @@ export default function TeamPage() {
 
         {/* RBAC Guarded Button */}
         {isAdmin ? (
-          <button className="flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg transition-all hover:bg-violet-500 hover:shadow-violet-500/25">
+          <button 
+            onClick={() => setIsInviteModalOpen(true)}
+            className="flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg transition-all hover:bg-emerald-500 hover:shadow-emerald-500/25"
+          >
             <UserPlus className="h-4 w-4" />
             Invite New Member
           </button>
@@ -74,9 +85,28 @@ export default function TeamPage() {
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-slate-500" />
           </div>
+        ) : errorStatus === 403 ? (
+          <div className="flex flex-col h-64 items-center justify-center text-center px-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 mb-4">
+              <ShieldAlert className="h-6 w-6 text-amber-500" />
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">Access Restricted</h3>
+            <p className="text-sm text-slate-400 mb-6 max-w-md">You need Company Admin privileges to view and manage the team roster.</p>
+          </div>
         ) : error ? (
-          <div className="flex h-64 items-center justify-center text-rose-400">
-            {error}
+          <div className="flex flex-col h-64 items-center justify-center text-center px-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-500/10 mb-4">
+              <AlertTriangle className="h-6 w-6 text-rose-500" />
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">Failed to load team</h3>
+            <p className="text-sm text-slate-400 mb-6 max-w-md">{error}</p>
+            <button
+              onClick={fetchTeam}
+              className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Try Again
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -123,9 +153,9 @@ export default function TeamPage() {
                           Active
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 text-slate-500">
-                          <span className="h-2 w-2 rounded-full bg-slate-600"></span>
-                          Deactivated
+                        <div className="flex items-center gap-1.5 text-amber-500">
+                          <Clock className="h-4 w-4" />
+                          Pending Invite
                         </div>
                       )}
                     </td>
@@ -141,6 +171,12 @@ export default function TeamPage() {
           </div>
         )}
       </div>
+
+      <InviteMemberModal 
+        isOpen={isInviteModalOpen}
+        onClose={() => setIsInviteModalOpen(false)}
+        onSuccess={fetchTeam}
+      />
     </div>
   );
 }

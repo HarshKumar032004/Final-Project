@@ -46,6 +46,11 @@ export const config = {
   stripe: {
     secretKey: optionalEnv('STRIPE_SECRET_KEY'),
     webhookSecret: optionalEnv('STRIPE_WEBHOOK_SECRET'),
+    prices: {
+      starter: optionalEnv('STRIPE_PRICE_STARTER', 'price_starter_placeholder'),
+      pro: optionalEnv('STRIPE_PRICE_PRO', 'price_pro_placeholder'),
+      enterprise: optionalEnv('STRIPE_PRICE_ENTERPRISE', 'price_enterprise_placeholder'),
+    }
   },
 
   razorpay: {

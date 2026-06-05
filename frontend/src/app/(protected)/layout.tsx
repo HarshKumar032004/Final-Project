@@ -8,7 +8,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Leaf, LayoutDashboard, Database, Users, Settings, LogOut, CreditCard } from 'lucide-react';
+import { Leaf, LayoutDashboard, Database, Users, Settings, LogOut, CreditCard, ShieldCheck } from 'lucide-react';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 import { useAuth } from '@/context/AuthContext';
 
@@ -17,6 +17,7 @@ const navigation = [
   { name: 'Logs',      href: '/logs',      icon: Database },
   { name: 'Team',      href: '/team',      icon: Users },
   { name: 'Billing',   href: '/billing',   icon: CreditCard },
+  { name: 'Subscription', href: '/subscription', icon: ShieldCheck },
   { name: 'Settings',  href: '/settings',  icon: Settings },
 ];
 

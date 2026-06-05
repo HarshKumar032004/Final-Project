@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import type { AxiosError } from 'axios';
 import apiClient from '@/services/apiClient';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, Info, AlertTriangle, RefreshCw, Download, FileText, Lock } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 type EmissionScope = 'SCOPE_1' | 'SCOPE_2' | 'SCOPE_3';
 type EmissionCategory =
@@ -65,6 +66,9 @@ export default function LogsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentPlan, setCurrentPlan] = useState<string>('STARTER');
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -102,9 +106,15 @@ export default function LogsPage() {
 
     async function loadInitialLogs() {
       try {
-        const res = await apiClient.get<ApiSuccessResponse<EmissionLogsData>>('/emissions');
+        const [res, planRes] = await Promise.all([
+          apiClient.get<ApiSuccessResponse<EmissionLogsData>>('/emissions'),
+          apiClient.get('/billing/stripe/status').catch(() => null)
+        ]);
         if (!cancelled) {
           setLogs(normalizeEmissionItems(res.data?.data));
+          if (planRes?.data?.data?.currentPlan) {
+            setCurrentPlan(planRes.data.data.currentPlan);
+          }
           setError(null);
         }
       } catch (err: unknown) {
@@ -159,11 +169,37 @@ export default function LogsPage() {
     } catch (err: unknown) {
       const axiosError = err as AxiosError<ApiErrorResponse>;
       console.error('Failed to create log:', err);
-      setError(
-        axiosError.response?.data?.message ||
-          (err instanceof Error ? err.message : undefined) ||
-          'Failed to create emission log.'
-      );
+      
+      if (axiosError.response?.status === 403) {
+        const errorMsg = axiosError.response.data?.message || '';
+        if (errorMsg.includes('limit reached')) {
+          toast((t) => (
+            <div className="flex flex-col gap-2">
+              <span className="font-semibold text-white flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Limit Reached
+              </span>
+              <span className="text-sm text-slate-300">You have reached the 100 logs limit for the Starter plan.</span>
+              <button
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  window.location.href = '/subscription';
+                }}
+                className="mt-2 rounded bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-emerald-950 hover:bg-emerald-400 w-full text-center transition-colors"
+              >
+                Upgrade Plan
+              </button>
+            </div>
+          ), { duration: 8000, style: { background: '#171f33', border: '1px solid #334155' } });
+        } else {
+          toast.error("Access Restricted: Only Contributors and Admins can log emissions.", { duration: 5000 });
+        }
+      } else {
+        toast.error(
+          axiosError.response?.data?.message ||
+            (err instanceof Error ? err.message : 'Failed to create emission log.')
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -176,12 +212,90 @@ export default function LogsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-white">Emission Logs</h1>
           <p className="mt-1 text-sm text-slate-400">View and manage discrete carbon input records.</p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all hover:bg-emerald-400 hover:shadow-lg hover:shadow-emerald-500/20"
-        >
-          <Plus className="h-4 w-4" /> New Log
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 border-r border-slate-700/50 pr-3 mr-1">
+            <button
+              onClick={async () => {
+                try {
+                  setIsExportingCsv(true);
+                  const res = await apiClient.get('/export/csv', { responseType: 'blob' });
+                  const url = window.URL.createObjectURL(new Blob([res.data]));
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', 'emission_logs.csv');
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                } catch {
+                  toast.error('Failed to export CSV');
+                } finally {
+                  setIsExportingCsv(false);
+                }
+              }}
+              disabled={isExportingCsv}
+              className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-300 transition-all hover:bg-slate-700 hover:text-white"
+            >
+              {isExportingCsv ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              CSV
+            </button>
+            <button
+              onClick={async () => {
+                if (currentPlan === 'STARTER') {
+                  toast((t) => (
+                    <div className="flex flex-col gap-2">
+                      <span className="font-semibold text-white flex items-center gap-2">
+                        <Lock className="h-4 w-4 text-emerald-400" />
+                        Unlock PDF Reports
+                      </span>
+                      <span className="text-sm text-slate-300">Upgrade to Pro or Enterprise to download professional PDF reports.</span>
+                      <button
+                        onClick={() => {
+                          toast.dismiss(t.id);
+                          window.location.href = '/subscription';
+                        }}
+                        className="mt-2 rounded bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-emerald-950 hover:bg-emerald-400 w-full text-center transition-colors"
+                      >
+                        Upgrade Plan
+                      </button>
+                    </div>
+                  ), { duration: 8000, style: { background: '#171f33', border: '1px solid #334155' } });
+                  return;
+                }
+                
+                try {
+                  setIsExportingPdf(true);
+                  const res = await apiClient.get('/export/pdf', { responseType: 'blob' });
+                  const url = window.URL.createObjectURL(new Blob([res.data]));
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', 'Emissions_Report.pdf');
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                } catch {
+                  toast.error('Failed to export PDF');
+                } finally {
+                  setIsExportingPdf(false);
+                }
+              }}
+              disabled={isExportingPdf}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                currentPlan === 'STARTER' 
+                  ? 'bg-slate-800/50 text-slate-500 cursor-not-allowed hover:bg-slate-800' 
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+              }`}
+            >
+              {isExportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : currentPlan === 'STARTER' ? <Lock className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+              PDF
+            </button>
+          </div>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 transition-all hover:bg-emerald-400 hover:shadow-lg hover:shadow-emerald-500/20"
+          >
+            <Plus className="h-4 w-4" /> New Log
+          </button>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-700/30 bg-[#171f33] overflow-hidden">
@@ -189,13 +303,23 @@ export default function LogsPage() {
           <div className="flex h-64 items-center justify-center text-slate-500">
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
+        ) : error ? (
+          <div className="flex flex-col h-64 items-center justify-center text-center px-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-500/10 mb-4">
+              <AlertTriangle className="h-6 w-6 text-rose-500" />
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">Failed to load logs</h3>
+            <p className="text-sm text-slate-400 mb-6 max-w-md">{error}</p>
+            <button
+              onClick={fetchLogs}
+              className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Try Again
+            </button>
+          </div>
         ) : (
           <>
-            {error && (
-              <div className="border-b border-rose-800/30 bg-rose-900/10 px-6 py-3 text-sm text-rose-300">
-                {error}
-              </div>
-            )}
             <table className="w-full text-sm">
               <thead className="bg-[#121828]">
                 <tr className="border-b border-slate-800 text-left text-xs font-semibold uppercase tracking-widest text-slate-500">
@@ -258,16 +382,41 @@ export default function LogsPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-sm text-slate-400">Scope</label>
-                  <select
-                    className="w-full rounded-lg border border-slate-700 bg-[#0b1326] px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
-                    value={formData.scope}
-                    onChange={(e) => setFormData({ ...formData, scope: e.target.value as EmissionScope })}
-                  >
-                    <option value="SCOPE_1">Scope 1</option>
-                    <option value="SCOPE_2">Scope 2</option>
-                    <option value="SCOPE_3">Scope 3</option>
-                  </select>
+                  <label className="mb-1 flex items-center gap-2 text-sm text-slate-400">
+                    Scope
+                    <div className="group relative flex items-center">
+                      <Info className="h-4 w-4 text-slate-500 hover:text-emerald-400 cursor-help transition-colors" />
+                      <div className="absolute bottom-full left-1/2 mb-2 hidden w-64 -translate-x-1/2 flex-col rounded-lg bg-[#0f1624] p-3 text-xs text-slate-300 shadow-xl border border-slate-700/50 group-hover:flex z-50">
+                        <strong className="text-white mb-1">GHG Scopes</strong>
+                        <ul className="space-y-1 list-disc list-inside">
+                          <li><span className="text-emerald-400">Scope 1:</span> Direct emissions (e.g. company vehicles).</li>
+                          <li><span className="text-emerald-400">Scope 2:</span> Indirect (e.g. purchased electricity).</li>
+                          <li><span className="text-emerald-400">Scope 3:</span> Value chain (e.g. supply chain).</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </label>
+                  <div className="relative">
+                    <select
+                      className="w-full rounded-lg border border-slate-700 bg-[#0b1326] px-3 py-2 text-white focus:border-emerald-500 focus:outline-none appearance-none"
+                      value={formData.scope}
+                      onChange={(e) => setFormData({ ...formData, scope: e.target.value as EmissionScope })}
+                    >
+                      <option value="SCOPE_1">Scope 1</option>
+                      <option value="SCOPE_2">Scope 2</option>
+                      <option value="SCOPE_3" disabled={currentPlan === 'STARTER'}>
+                        Scope 3 {currentPlan === 'STARTER' ? '(Requires Pro)' : ''}
+                      </option>
+                    </select>
+                    {currentPlan === 'STARTER' && formData.scope !== 'SCOPE_3' && (
+                      <div className="group absolute right-8 top-1/2 -translate-y-1/2 flex items-center">
+                        <Lock className="h-4 w-4 text-slate-500 hover:text-emerald-400 cursor-help transition-colors" />
+                        <div className="absolute bottom-full right-0 mb-2 hidden w-40 rounded-lg bg-[#0f1624] p-2 text-xs text-slate-300 shadow-xl border border-slate-700/50 group-hover:block z-50">
+                          Unlock Scope 3 tracking with a Pro plan.
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="mb-1 block text-sm text-slate-400">Category</label>
@@ -302,7 +451,16 @@ export default function LogsPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm text-slate-400">Emission Factor</label>
+                  <label className="mb-1 flex items-center gap-2 text-sm text-slate-400">
+                    Emission Factor
+                    <div className="group relative flex items-center">
+                      <Info className="h-4 w-4 text-slate-500 hover:text-emerald-400 cursor-help transition-colors" />
+                      <div className="absolute bottom-full left-1/2 mb-2 hidden w-56 -translate-x-1/2 flex-col rounded-lg bg-[#0f1624] p-3 text-xs text-slate-300 shadow-xl border border-slate-700/50 group-hover:flex z-50">
+                        <strong className="text-white mb-1">What is this?</strong>
+                        <p>The multiplier used to calculate total CO2e from 1 unit of this activity (e.g. kg CO2e per kWh).</p>
+                      </div>
+                    </div>
+                  </label>
                   <input
                     required
                     type="number"

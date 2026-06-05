@@ -8,6 +8,7 @@ import prisma from '../config/database';
 import { sendSuccess } from '../utils/response.utils';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
 import { predictFutureEmissions } from '../services/ml.service';
+import { PlanType } from '../types/enums';
 
 /**
  * Interface corresponding to the Raw Postgres Query output
@@ -66,8 +67,16 @@ export const getDashboardAnalytics = asyncHandler(async (req: Request, res: Resp
     co2e: h.total,
   }));
 
-  // 4. Run simple time-series forecasting (next 3 months)
-  const predictedData = await predictFutureEmissions(trainingData, 3);
+  const subscription = await prisma.subscription.findUnique({
+    where: { companyId },
+    select: { planType: true },
+  });
+
+  // 4. Run simple time-series forecasting (next 3 months) ONLY if Pro/Enterprise
+  let predictedData: any[] = [];
+  if (subscription?.planType !== PlanType.STARTER) {
+    predictedData = await predictFutureEmissions(trainingData, 3);
+  }
 
   sendSuccess(res, { historicalData, predictedData }, 'Analytics & Predictions retrieved');
 });
