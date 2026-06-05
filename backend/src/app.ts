@@ -32,6 +32,10 @@ import { handleStripeWebhook } from './controllers/billing.controller';
 export function createApp(): Application {
   const app = express();
 
+  // Trust the reverse proxy (Render) to correctly set X-Forwarded-For headers
+  // This fixes the ERR_ERL_UNEXPECTED_X_FORWARDED_FOR error in express-rate-limit
+  app.set('trust proxy', 1);
+
   // Ensure FRONTEND_URL is available
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
