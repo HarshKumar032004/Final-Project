@@ -36,7 +36,7 @@ services:
       - RESEND_API_KEY=${RESEND_API_KEY}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
-      - ML_SERVICE_URL=http://ml-service:8000
+      - PYTHON_SERVICE_URL=http://ml-service:8000
     depends_on:
       postgres:
         condition: service_healthy
