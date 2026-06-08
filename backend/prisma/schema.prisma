@@ -70,21 +70,22 @@ enum EmissionCategory {
 // ─── COMPANY ──────────────────────────────────────────────────────────────────
 
 model Company {
-  id                 String       @id @default(cuid())
+  id                 String   @id @default(cuid())
   name               String
   industry           Industry
-  registrationNumber String       @unique
+  registrationNumber String   @unique
   totalEmployees     Int
   logoUrl            String?
   website            String?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   // Relations
-  users              User[]
-  subscription       Subscription?
-  emissionRecords    EmissionRecord[]
-  apiKeys            ApiKey[]
+  users           User[]
+  subscription    Subscription?
+  emissionRecords EmissionRecord[]
+  apiKeys         ApiKey[]
+  AuditLog        AuditLog[]
 
   @@index([registrationNumber])
   @@map("companies")
@@ -93,33 +94,34 @@ model Company {
 // ─── USER ─────────────────────────────────────────────────────────────────────
 
 model User {
-  id                  String    @id @default(cuid())
-  name                String
-  email               String    @unique
-  password            String    // bcrypt hashed — never return in API responses
-  role                UserRole  @default(DATA_CONTRIBUTOR)
-  isActive            Boolean   @default(true)
-  lastLoginAt         DateTime?
-  refreshToken        String?   // hashed refresh token for rotation
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  password     String // bcrypt hashed — never return in API responses
+  role         UserRole  @default(DATA_CONTRIBUTOR)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  refreshToken String? // hashed refresh token for rotation
 
   // ── Invite flow ─────────────────────────────────────────────────
   // Invited users start with isActive=false until they accept the invite.
-  inviteToken         String?   @unique
-  inviteTokenExpires  DateTime?
+  inviteToken        String?   @unique
+  inviteTokenExpires DateTime?
 
   // ── Password reset flow ─────────────────────────────────────────
-  resetToken          String?   @unique
-  resetTokenExpires   DateTime?
+  resetToken        String?   @unique
+  resetTokenExpires DateTime?
 
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  companyId           String
-  company             Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   // Emissions logged by this user
   emissionRecords EmissionRecord[]
+  AuditLog        AuditLog[]
 
   @@index([email, isActive])
   @@index([companyId, role])
@@ -127,7 +129,6 @@ model User {
   @@index([resetToken])
   @@map("users")
 }
-
 
 // ─── SUBSCRIPTION ─────────────────────────────────────────────────────────────
 
@@ -146,8 +147,8 @@ model Subscription {
   updatedAt              DateTime           @updatedAt
 
   // Relations — 1:1 with Company
-  companyId              String             @unique
-  company                Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([stripeCustomerId])
   @@map("subscriptions")
@@ -164,7 +165,7 @@ model ApiKey {
 
   // Relations
   companyId String
-  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
   @@map("api_keys")
@@ -173,31 +174,31 @@ model ApiKey {
 // ─── EMISSION RECORD ──────────────────────────────────────────────────────────
 
 model EmissionRecord {
-  id              String           @id @default(cuid())
-  scope           EmissionScope
-  category        EmissionCategory
-  description     String?
+  id          String           @id @default(cuid())
+  scope       EmissionScope
+  category    EmissionCategory
+  description String?
 
   // Measurement fields
-  amount          Float            // Quantity of activity (kWh, litres, km, tonnes, etc.)
-  unit            String           // Unit of measurement string (e.g. "kWh", "km", "litres")
-  emissionFactor  Float            // kgCO2e per unit (from GHG Protocol / IPCC factors)
-  calculatedCO2e  Float            // Auto-calculated: amount × emissionFactor (kgCO2e)
+  amount         Float // Quantity of activity (kWh, litres, km, tonnes, etc.)
+  unit           String // Unit of measurement string (e.g. "kWh", "km", "litres")
+  emissionFactor Float // kgCO2e per unit (from GHG Protocol / IPCC factors)
+  calculatedCO2e Float // Auto-calculated: amount × emissionFactor (kgCO2e)
 
   // Metadata
-  dateLogged      DateTime         @default(now())  // Period the emission applies to
-  evidenceUrl     String?          // Link to supporting document / invoice
+  dateLogged  DateTime @default(now()) // Period the emission applies to
+  evidenceUrl String? // Link to supporting document / invoice
 
   // Audit
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  companyId       String
-  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  loggedById      String
-  loggedBy        User             @relation(fields: [loggedById], references: [id])
+  loggedById String
+  loggedBy   User   @relation(fields: [loggedById], references: [id])
 
   @@index([companyId, dateLogged])
   @@index([companyId, scope])
@@ -209,16 +210,20 @@ model EmissionRecord {
 // Immutable append-only table — records every significant system action.
 
 model AuditLog {
-  id          String   @id @default(cuid())
-  companyId   String
-  userId      String
-  action      String   // e.g. "EMISSION_CREATED", "SUBSCRIPTION_UPGRADED"
-  entityType  String   // e.g. "EmissionRecord", "Subscription"
-  entityId    String?
-  metadata    Json?    // Extra context as JSON blob
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  companyId  String
+  userId     String
+  action     String // e.g. "EMISSION_CREATED", "SUBSCRIPTION_UPGRADED"
+  entityType String // e.g. "EmissionRecord", "Subscription"
+  entityId   String?
+  metadata   Json? // Extra context as JSON blob
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, createdAt])
   @@index([userId])

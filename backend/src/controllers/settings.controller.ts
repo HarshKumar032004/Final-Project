@@ -240,6 +240,14 @@ export const getAuditLogs = async (req: Request, res: Response) => {
       where: { companyId },
       orderBy: { createdAt: 'desc' },
       take: 50,
+      include: {
+        user: {
+          select: {
+            name: true,
+            email: true,
+          }
+        }
+      }
     });
 
     return res.status(200).json({ success: true, data: logs });
@@ -248,3 +256,4 @@ export const getAuditLogs = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
+
